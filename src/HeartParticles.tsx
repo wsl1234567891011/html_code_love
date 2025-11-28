@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useStore } from './store' 
 
-// --- 1. Vertex Shader (修复了 GLSL 编译错误) ---
+// --- 1. Vertex Shader ---
 const vertexShader = `
   attribute float aScale;
   attribute float aLife;
@@ -17,12 +17,11 @@ const vertexShader = `
   varying float vLife;
   varying float vExplodeFactor;
 
-  // --- 稳定的 Simplex Noise 算法 ---
+  // 噪波算法
   vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
   vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
   vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
   vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
-
   float snoise(vec3 v) {
     const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;
     const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
@@ -67,39 +66,35 @@ const vertexShader = `
   }
 
   void main() {
-    // 心跳
-    float beatFreq = 7.0; 
-    float beatAmp = 0.03; 
+    // --- 💓 心跳调节 ---
+    // 🔥 修改点：频率 6.0，幅度 0.08 (柔和且清晰)
+    float beatFreq = 6.0; 
+    float beatAmp = 0.08; 
+    
     float beatFactor = smoothstep(0.3, 0.0, uExplode); 
     float scale = 1.0 + beatFactor * beatAmp * sin(uTime * beatFreq);
     vec3 beatPos = position * scale;
 
     vec4 modelPosition = modelMatrix * vec4(beatPos, 1.0);
     
-    // 爆炸曲线
     float explodeCurve = pow(uExplode, 0.5); 
 
-    // 🔥 修复点：使用纯量噪波生成湍流，避免 vec3 类型错误
-    // 我们分别在 x, y, z 轴上叠加不同偏移的噪波
+    // 湍流
     float noiseX = snoise(modelPosition.xyz * 0.1 + vec3(uTime * 0.5, 0.0, 0.0));
     float noiseY = snoise(modelPosition.xyz * 0.1 + vec3(0.0, uTime * 0.5, 0.0));
     float noiseZ = snoise(modelPosition.xyz * 0.1 + vec3(0.0, 0.0, uTime * 0.5));
     vec3 noiseFlow = vec3(noiseX, noiseY, noiseZ) * explodeCurve * 8.0;
 
-    // 基础放射
     vec3 explosionDir = normalize(position + aRandom * 0.5); 
-    
-    // 限制最大范围 60.0
     float explosionDist = explodeCurve * 60.0;
     
-    // 最终位置
     modelPosition.xyz += explosionDir * explosionDist + noiseFlow;
 
     vec4 viewPosition = viewMatrix * modelPosition;
     gl_Position = projectionMatrix * viewPosition;
 
     // 粒子大小
-    float sizeMix = mix(180.0, 60.0, explodeCurve);
+    float sizeMix = mix(220.0, 60.0, explodeCurve);
     gl_PointSize = aScale * sizeMix * uPixelRatio;
     gl_PointSize *= (1.0 / -viewPosition.z);
 
@@ -109,7 +104,7 @@ const vertexShader = `
   }
 `
 
-// --- 2. Fragment Shader (保持不变，效果很好) ---
+// --- 2. Fragment Shader ---
 const fragmentShader = `
   varying vec3 vPosition;
   varying float vLife;
@@ -125,10 +120,9 @@ const fragmentShader = `
     float strength = 0.1 / (dist + 0.05) - 0.1; 
     strength = clamp(strength, 0.0, 1.0);
 
-    float colorMix = length(vPosition) * 0.04; 
+    float colorMix = length(vPosition) * 0.03;
     vec3 baseColor = mix(uColorA, uColorB, colorMix);
     
-    // 闪光
     vec3 flashColor = vec3(1.0, 0.95, 0.8); 
     float flashIntensity = smoothstep(0.0, 0.4, vExplodeFactor) * smoothstep(1.0, 0.6, vExplodeFactor) * 2.0;
     
@@ -148,7 +142,6 @@ const CONFIG = {
   colorB: '#00FFFF',
 }
 
-// 距离映射函数 (手的大小 -> 爆炸程度)
 function mapExplosion(handSize: number) {
   const FAR = 0.08;
   const CLOSE = 0.22;
@@ -170,7 +163,8 @@ export const HeartParticles = () => {
     for (let i = 0; i < CONFIG.count; i++) {
       const i3 = i * 3
       const t = Math.random() * Math.PI * 2
-      const r = 0.1 + Math.random() * 0.015 
+      // 保持合适的尺寸 0.15
+      const r = 0.15 + Math.random() * 0.02 
       let x = 16 * Math.pow(Math.sin(t), 3)
       let y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t)
       let z = (Math.random() - 0.5) * 4
@@ -210,15 +204,11 @@ export const HeartParticles = () => {
       targetX = (activeHand.x - 0.5) * -15 
       targetY = (activeHand.y - 0.5) * -10
       targetRotationSpeed = (activeHand.x - 0.5) * 0.08
-      
-      // 使用手的大小控制爆炸
       targetExplode = mapExplosion(activeHand.z);
-
     } else {
       targetExplode = 0.0;
     }
 
-    // --- 平滑处理 ---
     smoothHand.current.x += (targetX - smoothHand.current.x) * 0.05
     smoothHand.current.y += (targetY - smoothHand.current.y) * 0.05
     points.current.position.x = smoothHand.current.x
@@ -232,7 +222,7 @@ export const HeartParticles = () => {
     points.current.rotation.y += targetRotationSpeed
 
     const targetObjectScale = THREE.MathUtils.mapLinear(
-      Math.min(smoothExplode.current, 1.0), 0.0, 1.0, 0.7, 1.1
+      Math.min(smoothExplode.current, 1.0), 0.0, 1.0, 1.0, 1.5
     );
     const currentScale = points.current.scale.x;
     points.current.scale.set(
